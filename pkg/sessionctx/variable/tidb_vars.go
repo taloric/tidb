@@ -1111,6 +1111,9 @@ const (
 	// TiDBEnableTiFlashPipelineMode means if we should use pipeline model to execute query or not in tiflash.
 	// It's deprecated and setting it will not have any effect.
 	TiDBEnableTiFlashPipelineMode = "tidb_enable_tiflash_pipeline_model"
+	
+	// TiDBTraceID is the trace id of the current tracing context.
+	TiDBTraceID = "tidb_trace_id"
 )
 
 // TiDB intentional limits

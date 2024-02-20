@@ -54,6 +54,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
 	"github.com/pingcap/tidb/pkg/config"
@@ -1064,7 +1065,20 @@ func (cc *clientConn) Run(ctx context.Context) {
 		}
 
 		startTime := time.Now()
+		cfg := config.GetGlobalConfig()
+		var r tracing.Region
+		if cfg.OpenTracing.Enable {
+			sc := cc.ctx.GetSessionVars().SpanContext
+			opts := make([]opentracing.StartSpanOption, 0, 1)
+			if sc.TraceID().IsValid() {
+				opts = append(opts, opentracing.ChildOf(sc))
+			}
+			sqlData := cc.packetToSQL(data)
+			r, ctx = tracing.StartRegionWithNewRootSpan(ctx, "server.conn", opts...)
+			r.Span.SetTag("client.sql", sqlData)
+		}
 		err = cc.dispatch(ctx, data)
+		r.End()
 		cc.ctx.GetSessionVars().ClearAlloc(&cc.chunkAlloc, err != nil)
 		cc.chunkAlloc.Reset()
 		if err != nil {
@@ -1198,8 +1212,7 @@ func (cc *clientConn) dispatch(ctx context.Context, data []byte) error {
 
 	cfg := config.GetGlobalConfig()
 	if cfg.OpenTracing.Enable {
-		var r tracing.Region
-		r, ctx = tracing.StartRegionEx(ctx, "server.dispatch")
+		r := tracing.StartRegion(ctx, "server.dispatch")
 		defer r.End()
 	}
 
@@ -2498,6 +2511,33 @@ func (cc *clientConn) handleRefresh(ctx context.Context, subCommand byte) error 
 		}
 	}
 	return cc.writeOK(ctx)
+}
+
+func (cc *clientConn) packetToSQL(pkg []byte) string {
+	cmd, data := pkg[0], pkg[1:]
+	switch cmd {
+	case mysql.ComInitDB:
+		return "Use " + string(data)
+	case mysql.ComFieldList:
+		return "ListFields " + string(data)
+	case mysql.ComQuery, mysql.ComStmtPrepare:
+		sql := string(hack.String(data))
+		if cc.ctx.GetSessionVars().EnableRedactLog {
+			sql = parser.Normalize(sql)
+		}
+		return executor.FormatSQL(sql).String()
+	case mysql.ComStmtExecute, mysql.ComStmtFetch:
+		stmtID := binary.LittleEndian.Uint32(data[0:4])
+		return executor.FormatSQL(cc.preparedStmt2String(stmtID)).String()
+	case mysql.ComStmtClose, mysql.ComStmtReset:
+		stmtID := binary.LittleEndian.Uint32(data[0:4])
+		return mysql.Command2Str[cmd] + " " + strconv.Itoa(int(stmtID))
+	default:
+		if cmdStr, ok := mysql.Command2Str[cmd]; ok {
+			return cmdStr
+		}
+		return string(hack.String(data))
+	}
 }
 
 var _ fmt.Stringer = getLastStmtInConn{}

@@ -57,6 +57,7 @@ import (
 	tikvcfg "github.com/tikv/client-go/v2/config"
 	tikvstore "github.com/tikv/client-go/v2/kv"
 	tikvcliutil "github.com/tikv/client-go/v2/util"
+	"github.com/uber/jaeger-client-go"
 	"go.uber.org/zap"
 )
 
@@ -2943,6 +2944,18 @@ var defaultSysVars = []*SysVar{
 			SchemaVersionCacheLimit.Store(TidbOptInt64(val, DefTiDBSchemaVersionCacheLimit))
 			return nil
 		}},
+	{Scope: ScopeSession, Name: TiDBTraceID, Value: "", Type: TypeStr, AllowEmpty: true, SetSession: func(sv *SessionVars, s string) error {
+		if len(s) != 0 {
+			sc, err := jaeger.ContextFromString(s)
+			if err != nil {
+				return err
+			}
+			sv.SpanContext = sc
+		} else {
+			sv.SpanContext = jaeger.SpanContext{}
+		}
+		return nil
+	}},
 }
 
 func setTiFlashComputeDispatchPolicy(s *SessionVars, val string) error {

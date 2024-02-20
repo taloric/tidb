@@ -713,6 +713,11 @@ func getColumnValueFactoryByName(colName string, columnIdx int) (slowQueryColumn
 			row[columnIdx] = types.NewStringDatum(backoffDetail)
 			return true, nil
 		}, nil
+	case variable.SlowLogTraceID:
+		return func(row []types.Datum, value string, tz *time.Location, checker *slowLogChecker) (bool, error) {
+			row[columnIdx] = types.NewStringDatum(value)
+			return true, nil
+		}, nil
 	case variable.SlowLogPlan:
 		return func(row []types.Datum, value string, tz *time.Location, checker *slowLogChecker) (bool, error) {
 			plan := parsePlan(value)
