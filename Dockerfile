@@ -17,12 +17,14 @@ FROM rockylinux:9 as builder
 
 ENV GOLANG_VERSION 1.21.1
 ENV ARCH amd64
-ENV GOLANG_DOWNLOAD_URL https://dl.google.com/go/go$GOLANG_VERSION.linux-$ARCH.tar.gz
+# ENV GOLANG_DOWNLOAD_URL https://dl.google.com/go/go$GOLANG_VERSION.linux-$ARCH.tar.gz
 ENV GOPATH /go
 ENV GOROOT /usr/local/go
+ENV GOPROXY https://goproxy.cn,direct
 ENV PATH $GOPATH/bin:$GOROOT/bin:$PATH
+COPY ./golang.tar.gz ./golang.tar.gz
 RUN yum update -y && yum groupinstall 'Development Tools' -y \
-    && curl -fsSL "$GOLANG_DOWNLOAD_URL" -o golang.tar.gz \
+    # && curl -fsSL "$GOLANG_DOWNLOAD_URL" -o golang.tar.gz \
 	&& tar -C /usr/local -xzf golang.tar.gz \
 	&& rm golang.tar.gz
 
@@ -31,7 +33,7 @@ ARG GOPROXY
 RUN export GOPROXY=${GOPROXY} && cd /tidb && make server
 
 FROM rockylinux:9-minimal
-
+COPY ./tidb_start_script.sh /usr/local/bin/tidb_start_script.sh
 COPY --from=builder /tidb/bin/tidb-server /tidb-server
 
 WORKDIR /

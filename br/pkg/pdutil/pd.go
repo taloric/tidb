@@ -22,6 +22,8 @@ import (
 	"github.com/coreos/go-semver/semver"
 	"github.com/docker/go-units"
 	"github.com/google/uuid"
+	otgrpc "github.com/opentracing-contrib/go-grpc"
+	"github.com/opentracing-contrib/go-stdlib/nethttp"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	"github.com/pingcap/failpoint"
@@ -177,6 +179,15 @@ func pdRequestWithCode(
 		if err != nil {
 			return 0, nil, errors.Trace(err)
 		}
+
+		if span := opentracing.SpanFromContext(ctx); span != nil && span.Tracer() != nil {
+			span1 := span.Tracer().StartSpan("Pd.HttpClient", opentracing.ChildOf(span.Context()))
+			ctx = opentracing.ContextWithSpan(context.Background(), span1)
+			defer span1.Finish()
+		}
+		req, ht := nethttp.TraceRequest(opentracing.GlobalTracer(), req)
+		defer ht.Finish()
+
 		resp, err = cli.Do(req) //nolint:bodyclose
 		count++
 		failpoint.Inject("InjectClosed", func(v failpoint.Value) {
@@ -289,13 +300,18 @@ func NewPdController(
 	}
 
 	version := parseVersion(versionBytes)
-	maxCallMsgSize := []grpc.DialOption{
+	dialOptions := []grpc.DialOption{
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize)),
 		grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(maxMsgSize)),
 	}
+	if opentracing.GlobalTracer() != nil {
+		dialOptions = append(dialOptions,
+			grpc.WithUnaryInterceptor(otgrpc.OpenTracingClientInterceptor(opentracing.GlobalTracer())),
+			grpc.WithStreamInterceptor(otgrpc.OpenTracingStreamClientInterceptor(opentracing.GlobalTracer())))
+	}
 	pdClient, err := pd.NewClientWithContext(
 		ctx, addrs, securityOption,
-		pd.WithGRPCDialOptions(maxCallMsgSize...),
+		pd.WithGRPCDialOptions(dialOptions...),
 		// If the time too short, we may scatter a region many times, because
 		// the interface `ScatterRegions` may time out.
 		pd.WithCustomTimeoutOption(60*time.Second),

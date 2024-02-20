@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	otgrpc "github.com/opentracing-contrib/go-grpc"
+	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/errors"
 	deadlockpb "github.com/pingcap/kvproto/pkg/deadlock"
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
@@ -156,16 +158,24 @@ func (d TiKVDriver) OpenWithOptions(path string, options ...Option) (resStore kv
 		}
 	}()
 
+	var dialOptions = []grpc.DialOption{
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    time.Duration(d.tikvConfig.GrpcKeepAliveTime) * time.Second,
+			Timeout: time.Duration(d.tikvConfig.GrpcKeepAliveTimeout) * time.Second,
+		}),
+	}
+	if opentracing.GlobalTracer() != nil {
+		dialOptions = append(dialOptions,
+			grpc.WithUnaryInterceptor(otgrpc.OpenTracingClientInterceptor(opentracing.GlobalTracer())),
+			grpc.WithStreamInterceptor(otgrpc.OpenTracingStreamClientInterceptor(opentracing.GlobalTracer())))
+	}
 	pdCli, err = pd.NewClient(etcdAddrs, pd.SecurityOption{
 		CAPath:   d.security.ClusterSSLCA,
 		CertPath: d.security.ClusterSSLCert,
 		KeyPath:  d.security.ClusterSSLKey,
 	},
 		pd.WithGRPCDialOptions(
-			grpc.WithKeepaliveParams(keepalive.ClientParameters{
-				Time:    time.Duration(d.tikvConfig.GrpcKeepAliveTime) * time.Second,
-				Timeout: time.Duration(d.tikvConfig.GrpcKeepAliveTimeout) * time.Second,
-			}),
+			dialOptions...,
 		),
 		pd.WithCustomTimeoutOption(time.Duration(d.pdConfig.PDServerTimeout)*time.Second),
 		pd.WithForwardingOption(config.GetGlobalConfig().EnableForwarding))

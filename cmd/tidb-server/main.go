@@ -85,6 +85,7 @@ import (
 	"github.com/tikv/client-go/v2/tikv"
 	"github.com/tikv/client-go/v2/txnkv/transaction"
 	pd "github.com/tikv/pd/client"
+	tracing "github.com/uber/jaeger-client-go/config"
 	"go.uber.org/automaxprocs/maxprocs"
 	"go.uber.org/zap"
 )
@@ -913,7 +914,9 @@ func setupTracing() {
 	cfg := config.GetGlobalConfig()
 	tracingCfg := cfg.OpenTracing.ToTracingConfig()
 	tracingCfg.ServiceName = "TiDB"
-	tracer, _, err := tracingCfg.NewTracer()
+	tracer, _, err := tracingCfg.NewTracer(
+		tracing.Gen128Bit(true),
+	)
 	if err != nil {
 		log.Fatal("setup jaeger tracer failed", zap.String("error message", err.Error()))
 	}

@@ -6,6 +6,9 @@ import (
 	"crypto/tls"
 	"net/http"
 	"time"
+
+	"github.com/opentracing-contrib/go-stdlib/nethttp"
+	"github.com/opentracing/opentracing-go"
 )
 
 // NewClient returns an HTTP(s) client.
@@ -17,6 +20,9 @@ func NewClient(tlsConf *tls.Config) *http.Client {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.TLSClientConfig = tlsConf
 		cli.Transport = transport
+	}
+	if opentracing.GlobalTracer() != nil {
+		cli.Transport = &nethttp.Transport{}
 	}
 	return cli
 }
